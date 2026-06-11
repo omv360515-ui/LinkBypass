@@ -14,8 +14,8 @@ CHANNEL_USERNAME = "@jorogamer"
 CHANNEL_URL = "https://t.me/jorogamer"
 DEVELOPER_URL = "https://t.me/Joro_Gamer"
 
-# आपकी Render ऐप का नाम (अगर आपने Render पर नई ऐप बनाई है, तो उसका नाम यहाँ डालें)
-YOUR_RENDER_APP_NAME = "file2linklite" 
+# 🔴 आपके स्क्रीनशॉट के अनुसार सही Render ऐप नाम यहाँ सेट कर दिया है
+YOUR_RENDER_APP_NAME = "linkbypass-3c6g" 
 BASE_URL = f"https://{YOUR_RENDER_APP_NAME}.onrender.com"
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -42,36 +42,25 @@ def send_join_request(chat_id):
     markup.row(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL))
     bot.send_message(chat_id, join_text, parse_mode="Markdown", reply_markup=markup)
 
-# 🚀 LINK BYPASS LOGIC (Multi-Bypass Engine)
+# 🚀 LINK BYPASS LOGIC
 def bypass_link(url):
-    # साफ़ लिंक निकालने के लिए क्लीनअप
     url = url.strip()
-    
-    # अगर डायरेक्ट मेगा या कोई नॉर्मल लिंक है
     if "mega.nz" in url or "google.com" in url:
         return url
-
     try:
-        # इन शार्टनर्स के लिए एक सिक्योर यूनिवर्सल बायपास API का इस्तेमाल
-        # यह arolinks, short4cash, vplink, speedy-links, get2short सबको हैंडल करने की कोशिश करता है
         api_url = f"https://wb-bypass-api.vercel.app/api/bypass?url={url}"
         response = requests.get(api_url, timeout=10)
         res_json = response.json()
-        
         if res_json.get("status") == "success" or "bypassed_url" in res_json:
             return res_json.get("bypassed_url") or res_json.get("destination")
             
-        # बैकअप API (अगर पहली काम न करे)
         backup_api = f"https://api.dualects.com/bypass?url={url}"
         backup_res = requests.get(backup_api, timeout=10).json()
         if backup_res.get("bypassed"):
             return backup_res.get("bypassed_url")
-            
-    except Exception as e:
-        print(f"Bypass Error: {str(e)}")
-    
+    except Exception:
+        pass
     return None
-
 
 # 🌐 Webhook Route
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
@@ -86,9 +75,7 @@ def getMessage():
 def home():
     return "⚡ Joro Link Bypass Bot Is Running Alive ⚡", 200
 
-
 # --- TELEGRAM BOT LOGIC ---
-
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     if not check_must_join(message.from_user.id):
@@ -107,7 +94,6 @@ def send_welcome(message):
         "📥 *Kaise Use Karein?*\n"
         "Aap koi bhi shortener link is chat me send karein. Bot bina kisi ad ya timer ke aapko direct original link nikal kar dega!"
     )
-    
     markup = InlineKeyboardMarkup()
     markup.row(
         InlineKeyboardButton("📢 Channel", url=CHANNEL_URL),
@@ -122,22 +108,13 @@ def handle_links(message):
         return
 
     text = message.text
-    # लिंक ढूंढने के लिए Regex
     urls = re.findall(r'(https?://[^\s]+)', text)
-    
     if not urls:
         bot.reply_to(message, "❌ *Kripya ek valid URL/Link send karein!*", parse_mode="Markdown")
         return
         
     target_url = urls[0]
-    
-    processing_msg = bot.send_message(
-        message.chat.id, 
-        "⏳ *Bypassing your link... Please wait...*", 
-        parse_mode="Markdown"
-    )
-    
-    # बायपास फंक्शन को कॉल करना
+    processing_msg = bot.send_message(message.chat.id, "⏳ *Bypassing your link... Please wait...*", parse_mode="Markdown")
     bypassed_result = bypass_link(target_url)
     
     if bypassed_result:
@@ -148,19 +125,11 @@ def handle_links(message):
         )
         markup = InlineKeyboardMarkup()
         markup.row(InlineKeyboardButton("🌐 Open Direct Link", url=bypassed_result))
-        
         bot.delete_message(message.chat.id, processing_msg.message_id)
         bot.send_message(message.chat.id, success_text, parse_mode="Markdown", reply_markup=markup)
     else:
-        bot.edit_message_text(
-            chat_id=message.chat.id,
-            message_id=processing_msg.message_id,
-            text="❌ *Bypass Failed!* Ye link active nahi hai ya ye network abhi supported nahi hai.",
-            parse_mode="Markdown"
-        )
+        bot.edit_message_text(chat_id=message.chat.id, message_id=processing_msg.message_id, text="❌ *Bypass Failed!* Ye link active nahi hai ya ye network abhi supported nahi hai.", parse_mode="Markdown")
 
-
-# 🛠️ AUTOMATIC WEBHOOK SETUP
 def set_webhook():
     import time
     time.sleep(2)
@@ -175,4 +144,3 @@ if __name__ == '__main__':
     
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-    
