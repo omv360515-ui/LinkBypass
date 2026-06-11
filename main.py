@@ -2,11 +2,12 @@ import os
 import threading
 import re
 import requests
+from bs4 import BeautifulSoup
 from flask import Flask, request
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# 🤖 आपका नया बॉट टोकन
+# 🤖 आपका बॉट टोकन
 BOT_TOKEN = "8972808062:AAGDefSN8rOSHQyZerCg1DNuYsLkeUXzunE"
 
 # 📢 चैनल और डेवलपर डिटेल्स
@@ -14,14 +15,14 @@ CHANNEL_USERNAME = "@jorogamer"
 CHANNEL_URL = "https://t.me/jorogamer"
 DEVELOPER_URL = "https://t.me/Joro_Gamer"
 
-# 🔴 आपके स्क्रीनशॉट के अनुसार सही Render ऐप नाम यहाँ सेट कर दिया है
+# सही Render ऐप नाम
 YOUR_RENDER_APP_NAME = "linkbypass-3c6g" 
 BASE_URL = f"https://{YOUR_RENDER_APP_NAME}.onrender.com"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# 🔒 Force Join Check Function
+# 🔒 Force Join Check
 def check_must_join(user_id):
     try:
         member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
@@ -31,7 +32,6 @@ def check_must_join(user_id):
     except Exception:
         return True
 
-# 📢 Join Request Message
 def send_join_request(chat_id):
     join_text = (
         "🔗 *To use Link Bypass Bot, you must join our channel!*\n\n"
@@ -42,27 +42,90 @@ def send_join_request(chat_id):
     markup.row(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL))
     bot.send_message(chat_id, join_text, parse_mode="Markdown", reply_markup=markup)
 
-# 🚀 LINK BYPASS LOGIC
-def bypass_link(url):
+
+# 🚀 NEW CUSTOM SCRAPER ENGINE (Direct Token Bypasser)
+def custom_bypass(url):
     url = url.strip()
-    if "mega.nz" in url or "google.com" in url:
-        return url
+    session = requests.Session()
+    
+    # ब्राउज़र जैसा दिखने के लिए Headers
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Connection': 'keep-alive'
+    })
+    
     try:
-        api_url = f"https://wb-bypass-api.vercel.app/api/bypass?url={url}"
-        response = requests.get(api_url, timeout=10)
-        res_json = response.json()
-        if res_json.get("status") == "success" or "bypassed_url" in res_json:
-            return res_json.get("bypassed_url") or res_json.get("destination")
+        # Step 1: शॉर्टनर के पहले पेज पर जाना
+        res = session.get(url, timeout=15, allow_redirects=True)
+        final_url = res.url
+        
+        # अगर सीधे ओरिजिनल लिंक पर ही रीडायरेक्ट हो गया हो
+        if "arolinks.com" not in final_url and "get2short.com" not in final_url and "short4cash.com" not in final_url and "vplink.in" not in final_url:
+            return final_url
             
-        backup_api = f"https://api.dualects.com/bypass?url={url}"
-        backup_res = requests.get(backup_api, timeout=10).json()
-        if backup_res.get("bypassed"):
-            return backup_res.get("bypassed_url")
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # Step 2: फॉर्म इनपुट्स और हिडन टोकन्स ढूंढना
+        inputs = soup.find_all('input')
+        data = {}
+        for i in inputs:
+            if i.get('name'):
+                data[i.get('name')] = i.get('value', '')
+                
+        # बहुत से स्क्रिप्ट्स में 'id' या 'g-recaptcha-response' की ज़रूरत होती है
+        # हम बैकएंड पर रीडायरेक्शन फॉर्म को मिमिक (नकल) कर रहे हैं
+        form = soup.find('form')
+        if form and form.get('action'):
+            action_url = form.get('action')
+            if not action_url.startswith('http'):
+                # रिलेटिव URL को पूरा करना
+                from urlparse import urljoin # Python 2/3 compatibility safety
+                try:
+                    from urllib.parse import urljoin
+                except ImportError:
+                    pass
+                
+                # बेस डोमेन निकालना
+                domain = re.match(r'(https?://[^/]+)', final_url).group(1)
+                action_url = urljoin(domain, action_url)
+                
+            # फॉर्म सबमिट करना बैकएंड पर
+            res2 = session.post(action_url, data=data, timeout=15, allow_redirects=True)
+            
+            # अगर फाइनल डेस्टिनेशन मिल गया
+            if res2.status_code == 200:
+                # कुछ क्लोन स्क्रिप्ट्स सीधे 'location' स्क्रिप्ट टैग में लिंक देती हैं
+                script_links = re.findall(r'window\.location\.href\s*=\s*["\']([^"\']+)["\']', res2.text)
+                if script_links:
+                    return script_links[0]
+                
+                # अगर रिस्पॉन्स में कोई डायरेक्ट लिंक बटन है
+                soup2 = BeautifulSoup(res2.text, 'html.parser')
+                for a in soup2.find_all('a', href=True):
+                    if 'get link' in a.text.lower() or 'download' in a.text.lower():
+                        if "arolinks" not in a['href'] and "get2short" not in a['href']:
+                            return a['href']
+                            
+                return res2.url
+
+    except Exception as e:
+        print(f"Scraper Error: {str(e)}")
+        
+    # --- MULTI-API BACKUP FALLBACK ---
+    try:
+        # अगर स्क्रैपर अटके, तो एडवांस यूनिवर्सल अल्टरनेटिव API ट्रिगर करना
+        alt_api = f"https://api.pepebypass.workers.dev/bypass?url={url}"
+        r = requests.get(alt_api, timeout=10).json()
+        if r.get("status") == "success" and r.get("bypassed_url"):
+            return r.get("bypassed_url")
     except Exception:
         pass
+        
     return None
 
-# 🌐 Webhook Route
+
+# 🌐 Webhook & Home Routes
 @app.route(f'/{BOT_TOKEN}', methods=['POST'])
 def getMessage():
     json_string = request.get_data().decode('utf-8')
@@ -70,10 +133,10 @@ def getMessage():
     bot.process_new_updates([update])
     return "!", 200
 
-# 🏠 होम रूट
 @app.route('/')
 def home():
     return "⚡ Joro Link Bypass Bot Is Running Alive ⚡", 200
+
 
 # --- TELEGRAM BOT LOGIC ---
 @bot.message_handler(commands=['start', 'help'])
@@ -85,7 +148,7 @@ def send_welcome(message):
     user_name = message.from_user.first_name
     welcome_text = (
         f"👋 *Welcome, {user_name}!*\n\n"
-        "🤖 *FAST LINK BYPASS BOT*\n"
+        "🤖 *FAST LINK BYPASS BOT v2.0*\n"
         "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
         "⚡ *Supported Links:*\n"
         "├ GPlinks, Arolinks, Short4cash\n"
@@ -109,13 +172,16 @@ def handle_links(message):
 
     text = message.text
     urls = re.findall(r'(https?://[^\s]+)', text)
+    
     if not urls:
         bot.reply_to(message, "❌ *Kripya ek valid URL/Link send karein!*", parse_mode="Markdown")
         return
         
     target_url = urls[0]
-    processing_msg = bot.send_message(message.chat.id, "⏳ *Bypassing your link... Please wait...*", parse_mode="Markdown")
-    bypassed_result = bypass_link(target_url)
+    processing_msg = bot.send_message(message.chat.id, "⏳ *Bypassing your link with Engine v2... Please wait...*", parse_mode="Markdown")
+    
+    # कॉल न्यू स्क्रैपर + बैकअप कम्बो
+    bypassed_result = custom_bypass(target_url)
     
     if bypassed_result:
         success_text = (
@@ -125,10 +191,16 @@ def handle_links(message):
         )
         markup = InlineKeyboardMarkup()
         markup.row(InlineKeyboardButton("🌐 Open Direct Link", url=bypassed_result))
+        
         bot.delete_message(message.chat.id, processing_msg.message_id)
         bot.send_message(message.chat.id, success_text, parse_mode="Markdown", reply_markup=markup)
     else:
-        bot.edit_message_text(chat_id=message.chat.id, message_id=processing_msg.message_id, text="❌ *Bypass Failed!* Ye link active nahi hai ya ye network abhi supported nahi hai.", parse_mode="Markdown")
+        bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=processing_msg.message_id,
+            text="❌ *Bypass Failed!* Ye link active nahi hai ya ye network abhi supported nahi hai.\n\n*Tip:* Ek baar check karein ki link open ho rahi hai ya nahi.",
+            parse_mode="Markdown"
+        )
 
 def set_webhook():
     import time
