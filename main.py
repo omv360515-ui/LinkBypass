@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram Link Bypass Bot – Multi‑Tier Smart Bypass Engine
+Telegram Link Bypass Bot – Multi‑Tier Smart Bypass Engine (Lightweight Edition)
 Integrates 20+ bypass methods, organised in logical tiers.
 """
 import os
@@ -27,27 +27,14 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bs4 import BeautifulSoup
 
 # ------------------------ OPTIONAL ADVANCED PACKAGES ------------------------
-CURL_AVAILABLE = False
+CURL_AVAILABLE = True
 PLAYWRIGHT_AVAILABLE = False
 SELENIUM_AVAILABLE = False
 
 try:
     from curl_cffi import requests as curl_req
-    CURL_AVAILABLE = True
 except ImportError:
-    pass
-
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    pass
-
-try:
-    import undetected_chromedriver as uc
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    pass
+    CURL_AVAILABLE = False
 
 # ------------------------ CONFIGURATION --------------------------------------
 BOT_TOKEN = "8972808062:AAGDefSN8rOSHQyZerCg1DNuYsLkeUXzunE"
@@ -415,60 +402,6 @@ def tls_fingerprint_bypass(url: str) -> Optional[str]:
         pass
     return None
 
-def playwright_stealth_bypass(url: str) -> Optional[str]:
-    """Full browser automation with stealth scripts (Playwright)."""
-    if not PLAYWRIGHT_AVAILABLE:
-        return None
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent=random.choice(USER_AGENTS),
-                viewport={"width": 1920, "height": 1080}
-            )
-            page = context.new_page()
-            page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                window.chrome = {runtime: {}};
-            """)
-            page.goto(url, timeout=30000)
-            time.sleep(3)
-            for text in ["Skip", "Get Link", "Continue"]:
-                try:
-                    btn = page.locator(f"a:has-text('{text}')").first
-                    if btn.is_visible():
-                        btn.click()
-                        time.sleep(2)
-                        break
-                except Exception:
-                    continue
-            final = page.url
-            browser.close()
-            if final != url and "captcha" not in final.lower():
-                return final
-    except Exception as e:
-        logger.debug(f"Playwright bypass error: {e}")
-    return None
-
-def selenium_stealth_bypass(url: str) -> Optional[str]:
-    """Undetected ChromeDriver to defeat sophisticated bot checks."""
-    if not SELENIUM_AVAILABLE:
-        return None
-    try:
-        options = uc.ChromeOptions()
-        options.add_argument("--headless")
-        options.add_argument("--no-sandbox")
-        driver = uc.Chrome(options=options)
-        driver.get(url)
-        time.sleep(3)
-        final = driver.current_url
-        driver.quit()
-        if final != url and "captcha" not in final.lower():
-            return final
-    except Exception as e:
-        logger.debug(f"Selenium bypass error: {e}")
-    return None
-
 def parallel_api_blast(url: str) -> Optional[str]:
     """Query multiple public bypass APIs in parallel."""
     APIS = [
@@ -503,4 +436,67 @@ class MasterBypassEngine:
         if cached:
             return cached
 
+        # --- Tier 1: Instant Redirect Extraction ---
+        res = meta_js_redirect(url)
+        if res and res != url: return self._finalize(url, res)
         
+        res = base64_decode_extractor(url)
+        if res and res != url: return self._finalize(url, res)
+
+        # --- Tier 2: Domain Targets & HTML Forms ---
+        res = domain_specific_handler(url)
+        if res and res != url: return self._finalize(url, res)
+        
+        res = form_submitter(url)
+        if res and res != url: return self._finalize(url, res)
+
+        # --- Tier 3: TLS & Scraping Handshakes ---
+        res = tls_fingerprint_bypass(url)
+        if res substitution and res != url: return self._finalize(url, res)
+        
+        res = cloudscraper_bypass(url)
+        if res and res != url: return self._finalize(url, res)
+
+        # --- Tier 4: Parallel API Blaster ---
+        res = parallel_api_blast(url)
+        if res and res != url: return self._finalize(url, res)
+
+        # --- Last Resort ---
+        res = basic_redirect(url)
+        if res and res != url: return self._finalize(url, res)
+
+        return None
+
+    def _finalize(self, original_url: str, bypassed_url: str) -> str:
+        cache.set(original_url, bypassed_url)
+        return bypassed_url
+
+engine = MasterBypassEngine()
+
+# ------------------------ TELEGRAM HANDLERS & FLASK --------------------------
+def check_must_join(user_id: int) -> bool:
+    try:
+        member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        return member.status in ['creator', 'administrator', 'member']
+    except Exception:
+        return True
+
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    update = telebot.types.Update.de_json(request.get_data().decode())
+    bot.process_new_updates([update])
+    return "!", 200
+
+@app.route('/')
+def home():
+    return "⚡ Tiered Bypass Engine Level 20 Connected Successfully ⚡", 200
+
+@app.route('/stats')
+def stats():
+    return jsonify(cache.get_stats())
+
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(msg):
+    if not check_must_join(msg.from_user.id):
+        markup = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL))
+        bot.send_m
