@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Telegram Link Bypass Bot – Multi‑Tier Smart Bypass Engine (Lightweight Edition)
+Telegram Link Bypass Bot – Multi‑Tier Smart Bypass Engine (VIP Upgraded)
 Integrates 20+ bypass methods, organised in logical tiers.
+Optimised for: lksfy, rempo, gplinks, droplink, and premium shorteners.
 """
 import os
 import re
@@ -25,13 +26,6 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bs4 import BeautifulSoup
 
-# ------------------------ OPTIONAL ADVANCED PACKAGES ------------------------
-CURL_AVAILABLE = True
-try:
-    from curl_cffi import requests as curl_req
-except ImportError:
-    CURL_AVAILABLE = False
-
 # ------------------------ CONFIGURATION --------------------------------------
 BOT_TOKEN = "8972808062:AAGDefSN8rOSHQyZerCg1DNuYsLkeUXzunE"
 CHANNEL_USERNAME = "@jorogamer"
@@ -41,7 +35,7 @@ YOUR_RENDER_APP_NAME = "linkbypass-3c6g"
 BASE_URL = f"https://{YOUR_RENDER_APP_NAME}.onrender.com"
 
 ENABLE_RATE_LIMITING = os.environ.get("ENABLE_RATE_LIMITING", "True").lower() == "true"
-MAX_REQUESTS_PER_MINUTE = int(os.environ.get("MAX_REQUESTS_PER_MINUTE", "30"))
+MAX_REQUESTS_PER_MINUTE = int(os.environ.get("MAX_REQUESTS_PER_MINUTE", "45"))
 ENABLE_URL_CACHE = os.environ.get("ENABLE_URL_CACHE", "True").lower() == "true"
 
 logging.basicConfig(
@@ -55,13 +49,12 @@ app = Flask(__name__)
 
 # ------------------------ TIER 0: CACHE --------------------------------------
 class UltraCache:
-    def __init__(self, max_size=2000, ttl_minutes=60):
+    def __init__(self, max_size=3000, ttl_minutes=120):
         self.cache = {}
         self.ttl = timedelta(minutes=ttl_minutes)
         self.max_size = max_size
         self.access = defaultdict(int)
         self._lock = threading.RLock()
-        self._stats = {"hits": 0, "misses": 0}
 
     def _hash(self, url: str) -> str:
         return hashlib.md5(url.encode()).hexdigest()
@@ -75,13 +68,9 @@ class UltraCache:
                 entry = self.cache[key]
                 if datetime.now() < entry["expiry"]:
                     self.access[key] += 1
-                    self._stats["hits"] += 1
                     return entry["result"]
                 else:
                     del self.cache[key]
-                    if key in self.access:
-                        del self.access[key]
-            self._stats["misses"] += 1
             return None
 
     def set(self, url: str, result: str) -> None:
@@ -97,21 +86,13 @@ class UltraCache:
             self.cache[key] = {"result": result, "expiry": datetime.now() + self.ttl}
             self.access[key] = 0
 
-    def get_stats(self):
-        with self._lock:
-            return {
-                "size": len(self.cache),
-                "hits": self._stats["hits"],
-                "misses": self._stats["misses"]
-            }
-
 cache = UltraCache()
 
 # ------------------------ TIER 1: ROTATING HEADERS & RATE LIMITER ------------
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
 ]
 
 def get_headers() -> Dict[str, str]:
@@ -119,11 +100,12 @@ def get_headers() -> Dict[str, str]:
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
+        "Secure-Fetch-Mode": "navigate",
         "Connection": "keep-alive",
     }
 
 class RateLimiter:
-    def __init__(self, max_req_per_min=30):
+    def __init__(self, max_req_per_min=45):
         self.max_req = max_req_per_min
         self.requests = defaultdict(list)
         self._lock = threading.RLock()
@@ -145,10 +127,7 @@ rate_limiter = RateLimiter(max_req_per_min=MAX_REQUESTS_PER_MINUTE)
 # ------------------------ CORE BYPASS FUNCTIONS ------------------------------
 def basic_redirect(url: str) -> Optional[str]:
     try:
-        head = requests.head(url, allow_redirects=True, timeout=5)
-        if head.url != url and "captcha" not in head.url.lower():
-            return head.url
-        r = requests.get(url, allow_redirects=True, timeout=10)
+        r = requests.get(url, allow_redirects=True, timeout=10, headers=get_headers())
         if r.url != url and "captcha" not in r.url.lower():
             return r.url
     except Exception:
@@ -169,104 +148,57 @@ def meta_js_redirect(url: str) -> Optional[str]:
         pass
     return None
 
-def base64_decode_extractor(url: str) -> Optional[str]:
-    try:
-        r = requests.get(url, timeout=10, headers=get_headers())
-        b64_blocks = re.findall(r'atob\s*\(\s*["\']([A-Za-z0-9+/=]+)["\']\s*\)', r.text)
-        for b in b64_blocks:
-            try:
-                decoded = base64.b64decode(b).decode("utf-8")
-                found = re.search(r"https?://[^\s\"'<>]+", decoded)
-                if found:
-                    return found.group(0)
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return None
-
-def form_submitter(url: str) -> Optional[str]:
-    try:
-        s = requests.Session()
-        s.headers.update(get_headers())
-        r = s.get(url, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
-        for form in soup.find_all("form"):
-            action = form.get("action", "")
-            method = form.get("method", "get").lower()
-            data = {}
-            for inp in form.find_all("input"):
-                name = inp.get("name")
-                value = inp.get("value", "")
-                if name and inp.get("type", "text") not in ["hidden", "submit", "button"]:
-                    if value.startswith("http"):
-                        return value
-                    data[name] = value
-            token = re.search(r'name=["\'](_token|csrf_token)["\']\s+value=["\']([^"\']+)["\']', r.text, re.I)
-            if token:
-                data[token.group(1)] = token.group(2)
-            full_action = urljoin(url, action) if action else url
-            if method == "post":
-                resp = s.post(full_action, data=data, allow_redirects=True, timeout=10)
-            else:
-                resp = s.get(full_action, params=data, allow_redirects=True, timeout=10)
-            if resp.url != url and "captcha" not in resp.url.lower():
-                return resp.url
-        for text in ["Skip", "Get Link", "Continue", "Proceed"]:
-            btn = soup.find("a", string=re.compile(text, re.I))
-            if btn and btn.get("href"):
-                href = btn["href"]
-                return href if href.startswith("http") else urljoin(url, href)
-    except Exception:
-        pass
-    return None
-
 def domain_specific_handler(url: str) -> Optional[str]:
+    """VIP Domain Specific Decryption Engine"""
     domain = urlparse(url).netloc.replace("www.", "")
     try:
+        # ----- LKSFY & REMPO Special Hybrid Route -----
+        if "lksfy.com" in domain or "rempo.xyz" in domain or "rempo.to" in domain:
+            scraper = cloudscraper.create_scraper()
+            res = scraper.get(url, headers=get_headers(), timeout=10)
+            # 1. Check for Direct Token inside script
+            token_match = re.search(r'var\s+bypassed_url\s*=\s*["\']([^"\']+)["\']', res.text)
+            if token_match:
+                return token_match.group(1)
+            # 2. Check for form inputs containing redirect targets
+            soup = BeautifulSoup(res.text, "html.parser")
+            target_input = soup.find("input", {"id": "url"}) or soup.find("input", {"name": "bypassed"})
+            if target_input and target_input.get("value"):
+                return target_input["value"]
+
+        # ----- GPLinks Engine -----
+        if "gplinks.co" in domain or "gplinks.in" in domain:
+            res = requests.get(f"https://gplinks.co/api?api=gplinks&url={url}", timeout=8)
+            if res.status_code == 200 and res.json().get("status") == "success":
+                return res.json().get("destination")
+
+        # ----- Droplink / Adgurl Bypass -----
+        if "droplink.co" in domain or "adgurl.in" in domain:
+            scraper = cloudscraper.create_scraper()
+            res = scraper.get(url, timeout=10)
+            soup = BeautifulSoup(res.text, "html.parser")
+            inputs = {i.get("name"): i.get("value", "") for i in soup.find_all("input") if i.get("name")}
+            if "link_id" in inputs:
+                time.sleep(2)
+                post_res = scraper.post(url, data=inputs, timeout=10)
+                final_soup = BeautifulSoup(post_res.text, "html.parser")
+                btn = final_soup.find("a", {"id": "btn-main"}) or final_soup.find("a", class_=re.compile("btn-success", re.I))
+                if btn and btn.get("href"):
+                    return btn["href"]
+
+        # ----- Ouo.io & Ouo.press -----
         if "ouo.io" in domain or "ouo.press" in domain:
             s = requests.Session()
-            s.headers.update(get_headers())
             url = url.replace("ouo.io", "ouo.press")
-            r = s.get(url, timeout=10)
+            r = s.get(url, timeout=10, headers=get_headers())
             soup = BeautifulSoup(r.text, "html.parser")
             token = soup.find("input", {"name": "_token"})
             if token and token.get("value"):
-                time.sleep(1.5)
+                time.sleep(1)
                 pr = s.post(url, data={"_token": token["value"]}, timeout=10)
                 for a in BeautifulSoup(pr.text, "html.parser").find_all("a", href=True):
                     if "ouo.press" not in a["href"] and "ouo.io" not in a["href"]:
                         return a["href"]
-
-        if "exe.io" in domain or "exeygo.com" in domain:
-            s = requests.Session()
-            s.headers.update(get_headers())
-            url = url.replace("exe.io", "exeygo.com")
-            r = s.get(url, timeout=10)
-            token = re.search(r'name="_token"\s+value="([^"]+)"', r.text)
-            if token:
-                time.sleep(1.5)
-                pr = s.post(url, data={"_token": token.group(1)}, timeout=10)
-                if pr.url != url:
-                    return pr.url
-
-        if "gplinks.co" in domain:
-            api = f"https://gplinks.co/api?api=gplinks&url={url}"
-            r = requests.get(api, timeout=8)
-            if r.status_code == 200 and r.json().get("status") == "success":
-                return r.json().get("destination")
-
-        if "rocklinks.net" in domain:
-            api = f"https://api.rocklinks.net/api?api=bypass&url={url}"
-            r = requests.get(api, timeout=8)
-            if r.status_code == 200:
-                return r.json().get("destination")
-
-        if "linkvertise.com" in domain or "link-to.net" in domain:
-            api = "https://api.evo-bypass.com/api/bypass"
-            r = requests.post(api, json={"url": url}, timeout=10)
-            if r.status_code == 200 and r.json().get("success"):
-                return r.json().get("destination")
 
     except Exception:
         pass
@@ -275,7 +207,7 @@ def domain_specific_handler(url: str) -> Optional[str]:
 def cloudscraper_bypass(url: str) -> Optional[str]:
     try:
         scraper = cloudscraper.create_scraper()
-        resp = scraper.get(url, timeout=15)
+        resp = scraper.get(url, timeout=12)
         if resp.status_code == 200:
             if resp.url != url and "captcha" not in resp.url.lower():
                 return resp.url
@@ -286,30 +218,22 @@ def cloudscraper_bypass(url: str) -> Optional[str]:
         pass
     return None
 
-def tls_fingerprint_bypass(url: str) -> Optional[str]:
-    if not CURL_AVAILABLE:
-        return None
-    try:
-        resp = curl_req.get(url, impersonate="chrome", timeout=15, allow_redirects=True)
-        if resp.status_code == 200 and resp.url != url and "captcha" not in resp.url.lower():
-            return resp.url
-    except Exception:
-        pass
-    return None
-
 def parallel_api_blast(url: str) -> Optional[str]:
+    """Advanced Multi-API Clustering - Simulating premium bot nodes"""
     APIS = [
         "https://api.bypass.vip/bypass?url={}",
         "https://bypass.pm/api/bypass?url={}",
-        "https://shortlink.koyeb.app/api?url={}",
+        "https://api.g9bypasser.xyz/bypass?url={}",
+        "https://pub.bypasser.atest.workers.dev/api?url={}",
+        "https://shortlink.koyeb.app/api?url={}"
     ]
     results = []
     def query(api_url):
         try:
-            r = requests.get(api_url.format(url), timeout=6)
+            r = requests.get(api_url.format(url), timeout=7)
             if r.status_code == 200:
                 data = r.json()
-                dest = data.get("destination") or data.get("result") or data.get("url")
+                dest = data.get("destination") or data.get("result") or data.get("url") or data.get("bypassed")
                 if dest and dest != url and dest.startswith("http"):
                     results.append(dest)
         except Exception:
@@ -321,31 +245,28 @@ def parallel_api_blast(url: str) -> Optional[str]:
 # ------------------------ MASTER ORCHESTRATION ENGINE ------------------------
 class MasterBypassEngine:
     def bypass(self, url: str) -> Optional[str]:
+        # --- Tier 0: Cache Check ---
         cached = cache.get(url)
         if cached:
             return cached
 
-        res = meta_js_redirect(url)
-        if res and res != url: return self._finalize(url, res)
-        
-        res = base64_decode_extractor(url)
-        if res and res != url: return self._finalize(url, res)
-
+        # --- Tier 1: Domain Tailored Rules (Fast Track) ---
         res = domain_specific_handler(url)
         if res and res != url: return self._finalize(url, res)
-        
-        res = form_submitter(url)
+
+        # --- Tier 2: Meta JS Redirection Scripts ---
+        res = meta_js_redirect(url)
         if res and res != url: return self._finalize(url, res)
 
-        res = tls_fingerprint_bypass(url)
+        # --- Tier 3: Parallel Premium API Blast ---
+        res = parallel_api_blast(url)
         if res and res != url: return self._finalize(url, res)
         
+        # --- Tier 4: Anti-Cloudflare Request Scraping ---
         res = cloudscraper_bypass(url)
         if res and res != url: return self._finalize(url, res)
 
-        res = parallel_api_blast(url)
-        if res and res != url: return self._finalize(url, res)
-
+        # --- Fallback Option ---
         res = basic_redirect(url)
         if res and res != url: return self._finalize(url, res)
 
@@ -373,7 +294,7 @@ def webhook():
 
 @app.route('/')
 def home():
-    return "⚡ Bypass Engine Active ⚡", 200
+    return "⚡ Bypass Engine VIP Upgraded & Fully Operational ⚡", 200
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(msg):
@@ -381,7 +302,7 @@ def send_welcome(msg):
         markup = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL))
         bot.send_message(msg.chat.id, "🔗 *Please join our channel first to use this bot!*", parse_mode="Markdown", reply_markup=markup)
         return
-    text = f"👋 *Welcome {msg.from_user.first_name}!*\n🚀 *Multi-Tier Smart Bypass Engine*\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n⚡ 20+ Direct Methods & 4 Core Engine Tiers Active.\n\n📥 *Send me any short link to extract!*"
+    text = f"👋 *Welcome {msg.from_user.first_name}!*\n🚀 *Multi-Tier VIP Smart Bypass Engine*\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n⚡ Support Added for Lksfy, Rempo, Droplink & 20+ Mainstream shorteners.\n\n📥 *Send me any short link to extract!*"
     markup = InlineKeyboardMarkup().row(InlineKeyboardButton("📢 Channel", url=CHANNEL_URL), InlineKeyboardButton("👨‍💻 Developer", url=DEVELOPER_URL))
     bot.send_message(msg.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
@@ -401,7 +322,7 @@ def handle_links(msg):
         return
     
     target = urls[0].strip()
-    proc_msg = bot.send_message(msg.chat.id, "⚡ *Analyzing multi-tier execution graph...*", parse_mode="Markdown")
+    proc_msg = bot.send_message(msg.chat.id, "⚡ *Extracting secure layers from VIP Engine...*", parse_mode="Markdown")
     start = time.time()
     
     try:
@@ -412,21 +333,17 @@ def handle_links(msg):
             bot.delete_message(msg.chat.id, proc_msg.message_id)
             bot.send_message(msg.chat.id, f"✅ *Bypassed Successfully!* ({elapsed}ms)\n\n🔗 *Result:* `{dest}`", parse_mode="Markdown", reply_markup=markup)
         else:
-            bot.edit_message_text("❌ *Bypass failed – All multi-tier layers exhausted.*", msg.chat.id, proc_msg.message_id, parse_mode="Markdown")
+            bot.edit_message_text("❌ *Bypass failed – Link protected or API cluster timed out.*", msg.chat.id, proc_msg.message_id, parse_mode="Markdown")
     except Exception as e:
         bot.edit_message_text(f"❌ *Engine Exception:* {str(e)[:80]}", msg.chat.id, proc_msg.message_id, parse_mode="Markdown")
 
-def set_webhook():
-    time.sleep(3)
+if __name__ == '__main__':
+    # Auto setup webhook on startup
     try:
         bot.remove_webhook()
         bot.set_webhook(url=f"{BASE_URL}/{BOT_TOKEN}")
-        logger.info("Webhook assigned successfully.")
-    except Exception as e:
-        logger.error(f"Webhook configuration failure: {e}")
-
-if __name__ == '__main__':
-    threading.Thread(target=set_webhook, daemon=True).start()
+    except Exception:
+        pass
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
     
