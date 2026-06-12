@@ -452,7 +452,7 @@ class MasterBypassEngine:
 
         # --- Tier 3: TLS & Scraping Handshakes ---
         res = tls_fingerprint_bypass(url)
-        if res substitution and res != url: return self._finalize(url, res)
+        if res and res != url: return self._finalize(url, res)
         
         res = cloudscraper_bypass(url)
         if res and res != url: return self._finalize(url, res)
@@ -499,4 +499,4 @@ def stats():
 def send_welcome(msg):
     if not check_must_join(msg.from_user.id):
         markup = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL))
-        bot.send_m
+        bot.send_message(msg.ch
