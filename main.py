@@ -12,12 +12,11 @@ import random
 import hashlib
 import logging
 import threading
-import secrets
 from urllib.parse import urlparse, urljoin
 from datetime import datetime, timedelta
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Tuple, Callable, Dict, List
+from typing import Optional, Dict, List
 
 import requests
 import cloudscraper
@@ -28,9 +27,6 @@ from bs4 import BeautifulSoup
 
 # ------------------------ OPTIONAL ADVANCED PACKAGES ------------------------
 CURL_AVAILABLE = True
-PLAYWRIGHT_AVAILABLE = False
-SELENIUM_AVAILABLE = False
-
 try:
     from curl_cffi import requests as curl_req
 except ImportError:
@@ -59,7 +55,6 @@ app = Flask(__name__)
 
 # ------------------------ TIER 0: CACHE --------------------------------------
 class UltraCache:
-    """Thread‑safe LRU cache with TTL for URL results."""
     def __init__(self, max_size=2000, ttl_minutes=60):
         self.cache = {}
         self.ttl = timedelta(minutes=ttl_minutes)
@@ -112,27 +107,22 @@ class UltraCache:
 
 cache = UltraCache()
 
-
 # ------------------------ TIER 1: ROTATING HEADERS & RATE LIMITER ------------
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
 ]
 
 def get_headers() -> Dict[str, str]:
-    """Return browser‑like headers with a random User‑Agent."""
     return {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
     }
 
 class RateLimiter:
-    """Sliding‑window rate limiter per user."""
     def __init__(self, max_req_per_min=30):
         self.max_req = max_req_per_min
         self.requests = defaultdict(list)
@@ -152,10 +142,8 @@ class RateLimiter:
 
 rate_limiter = RateLimiter(max_req_per_min=MAX_REQUESTS_PER_MINUTE)
 
-
 # ------------------------ CORE BYPASS FUNCTIONS ------------------------------
 def basic_redirect(url: str) -> Optional[str]:
-    """Follow HTTP redirects (HEAD then GET)."""
     try:
         head = requests.head(url, allow_redirects=True, timeout=5)
         if head.url != url and "captcha" not in head.url.lower():
@@ -168,7 +156,6 @@ def basic_redirect(url: str) -> Optional[str]:
     return None
 
 def meta_js_redirect(url: str) -> Optional[str]:
-    """Extract redirect from <meta> or window.location."""
     try:
         r = requests.get(url, timeout=10, headers=get_headers())
         html = r.text
@@ -183,7 +170,6 @@ def meta_js_redirect(url: str) -> Optional[str]:
     return None
 
 def base64_decode_extractor(url: str) -> Optional[str]:
-    """Decode atob() blocks that contain the final URL."""
     try:
         r = requests.get(url, timeout=10, headers=get_headers())
         b64_blocks = re.findall(r'atob\s*\(\s*["\']([A-Za-z0-9+/=]+)["\']\s*\)', r.text)
@@ -200,7 +186,6 @@ def base64_decode_extractor(url: str) -> Optional[str]:
     return None
 
 def form_submitter(url: str) -> Optional[str]:
-    """Auto‑submit forms and click skip/get‑link buttons."""
     try:
         s = requests.Session()
         s.headers.update(get_headers())
@@ -237,10 +222,8 @@ def form_submitter(url: str) -> Optional[str]:
     return None
 
 def domain_specific_handler(url: str) -> Optional[str]:
-    """Specialised bypass for 50+ shortener families."""
     domain = urlparse(url).netloc.replace("www.", "")
     try:
-        # ----- Ouo.io --------------------------------------------------------
         if "ouo.io" in domain or "ouo.press" in domain:
             s = requests.Session()
             s.headers.update(get_headers())
@@ -255,7 +238,6 @@ def domain_specific_handler(url: str) -> Optional[str]:
                     if "ouo.press" not in a["href"] and "ouo.io" not in a["href"]:
                         return a["href"]
 
-        # ----- Exe.io --------------------------------------------------------
         if "exe.io" in domain or "exeygo.com" in domain:
             s = requests.Session()
             s.headers.update(get_headers())
@@ -268,103 +250,18 @@ def domain_specific_handler(url: str) -> Optional[str]:
                 if pr.url != url:
                     return pr.url
 
-        # ----- Adlink / Adsurl ----------------------------------------------
-        if "link.adlink.click" in domain or "adsurl.pro" in domain:
-            r = requests.get(url.replace("link.adlink.click", "blog.adlink.click"), timeout=10)
-            meta = re.search(r"url=([^;\s]+)", r.text, re.I)
-            if meta:
-                return meta.group(1)
-
-        # ----- Cutty.io ------------------------------------------------------
-        if "cuty.io" in domain:
-            s = requests.Session()
-            r = s.get(url, timeout=10)
-            link_id = re.search(r'id="link-id"\s+value="([^"]+)"', r.text)
-            if link_id:
-                time.sleep(1.2)
-                r2 = s.get(f"https://cuty.io/get-link?id={link_id.group(1)}", timeout=10)
-                return r2.url
-
-        # ----- Try2Link ------------------------------------------------------
-        if "try2link.com" in domain:
-            soup = BeautifulSoup(requests.get(url, timeout=10).text, "html.parser")
-            btn = soup.find("a", string=re.compile("Get Link|Continue|Skip", re.I))
-            if btn and btn.get("href"):
-                return btn["href"]
-
-        # ----- ShrinkMe ------------------------------------------------------
-        if "shrinkme.io" in domain or "shrinkme.click" in domain:
-            s = requests.Session()
-            s.headers.update({"Referer": "https://themegon.com/"})
-            r = s.get(url, timeout=10)
-            match = re.search(r'window\.location\.href\s*=\s*["\'](https?://[^"\']+)["\']', r.text)
-            if match:
-                return match.group(1)
-            api = f"https://shrinkme.io/api?api=shrink&url={url}"
-            r2 = requests.get(api, timeout=8)
-            if r2.status_code == 200 and r2.text.startswith("http"):
-                return r2.text.strip()
-
-        # ----- GPLinks -------------------------------------------------------
         if "gplinks.co" in domain:
             api = f"https://gplinks.co/api?api=gplinks&url={url}"
             r = requests.get(api, timeout=8)
             if r.status_code == 200 and r.json().get("status") == "success":
                 return r.json().get("destination")
 
-        # ----- RockLinks -----------------------------------------------------
         if "rocklinks.net" in domain:
             api = f"https://api.rocklinks.net/api?api=bypass&url={url}"
             r = requests.get(api, timeout=8)
             if r.status_code == 200:
                 return r.json().get("destination")
 
-        # ----- Sub2Unlock ----------------------------------------------------
-        if "sub2unlock.com" in domain:
-            api = f"https://sub2unlock.com/api/bypass?url={url}"
-            r = requests.get(api, timeout=8)
-            if r.status_code == 200:
-                return r.json().get("destination")
-
-        # ----- Rekonise ------------------------------------------------------
-        if "rekonise.com" in domain:
-            api = f"https://rekonise.com/api/bypass?url={url}"
-            r = requests.get(api, timeout=8)
-            if r.status_code == 200:
-                return r.json().get("result")
-
-        # ----- Boost.ink -----------------------------------------------------
-        if "boost.ink" in domain:
-            s = requests.Session()
-            r = s.get(url, timeout=10)
-            tok = re.search(r'name="_token"\s+value="([^"]+)"', r.text)
-            if tok:
-                pr = s.post(url, data={"_token": tok.group(1)})
-                dest = re.search(r'window\.location\.href\s*=\s*["\']([^"\']+)["\']', pr.text)
-                if dest:
-                    return dest.group(1)
-
-        # ----- Work.ink ------------------------------------------------------
-        if "work.ink" in domain:
-            api = f"https://api.work.ink/bypass?url={url}"
-            r = requests.get(api, timeout=8)
-            if r.status_code == 200:
-                return r.json().get("url")
-
-        # ----- Adf.ly --------------------------------------------------------
-        if "adf.ly" in domain or "q.gs" in domain:
-            r = requests.get(url, timeout=10)
-            ysmm = re.search(r"var\s+ysmm\s*=\s*'([^']+)'", r.text)
-            if ysmm:
-                encoded = ysmm.group(1)
-                if len(encoded) >= 20:
-                    a, b = encoded[:10], encoded[10:]
-                    decoded = "".join(a[i] + b[i] for i in range(10))
-                    final = base64.b64decode(decoded).decode("utf-8")
-                    if final.startswith("http"):
-                        return final
-
-        # ----- Linkvertise & Family -----------------------------------------
         if "linkvertise.com" in domain or "link-to.net" in domain:
             api = "https://api.evo-bypass.com/api/bypass"
             r = requests.post(api, json={"url": url}, timeout=10)
@@ -376,7 +273,6 @@ def domain_specific_handler(url: str) -> Optional[str]:
     return None
 
 def cloudscraper_bypass(url: str) -> Optional[str]:
-    """Use cloudscraper to defeat Cloudflare challenges."""
     try:
         scraper = cloudscraper.create_scraper()
         resp = scraper.get(url, timeout=15)
@@ -391,7 +287,6 @@ def cloudscraper_bypass(url: str) -> Optional[str]:
     return None
 
 def tls_fingerprint_bypass(url: str) -> Optional[str]:
-    """Impersonate browser TLS handshake using curl_cffi."""
     if not CURL_AVAILABLE:
         return None
     try:
@@ -403,14 +298,10 @@ def tls_fingerprint_bypass(url: str) -> Optional[str]:
     return None
 
 def parallel_api_blast(url: str) -> Optional[str]:
-    """Query multiple public bypass APIs in parallel."""
     APIS = [
         "https://api.bypass.vip/bypass?url={}",
-        "https://api.g9bypasser.xyz/bypass?url={}",
         "https://bypass.pm/api/bypass?url={}",
         "https://shortlink.koyeb.app/api?url={}",
-        "https://unbypassed.vercel.app/api/bypass?url={}",
-        "https://pub.bypasser.atest.workers.dev/api?url={}",
     ]
     results = []
     def query(api_url):
@@ -419,7 +310,7 @@ def parallel_api_blast(url: str) -> Optional[str]:
             if r.status_code == 200:
                 data = r.json()
                 dest = data.get("destination") or data.get("result") or data.get("url")
-                if dest and dest != url and dest.startswith("http") and len(dest) > 10:
+                if dest and dest != url and dest.startswith("http"):
                     results.append(dest)
         except Exception:
             pass
@@ -429,39 +320,32 @@ def parallel_api_blast(url: str) -> Optional[str]:
 
 # ------------------------ MASTER ORCHESTRATION ENGINE ------------------------
 class MasterBypassEngine:
-    """Combines all Tiers sequentially to target maximum extraction rate."""
     def bypass(self, url: str) -> Optional[str]:
-        # --- Tier 0: Cache ---
         cached = cache.get(url)
         if cached:
             return cached
 
-        # --- Tier 1: Instant Redirect Extraction ---
         res = meta_js_redirect(url)
         if res and res != url: return self._finalize(url, res)
         
         res = base64_decode_extractor(url)
         if res and res != url: return self._finalize(url, res)
 
-        # --- Tier 2: Domain Targets & HTML Forms ---
         res = domain_specific_handler(url)
         if res and res != url: return self._finalize(url, res)
         
         res = form_submitter(url)
         if res and res != url: return self._finalize(url, res)
 
-        # --- Tier 3: TLS & Scraping Handshakes ---
         res = tls_fingerprint_bypass(url)
         if res and res != url: return self._finalize(url, res)
         
         res = cloudscraper_bypass(url)
         if res and res != url: return self._finalize(url, res)
 
-        # --- Tier 4: Parallel API Blaster ---
         res = parallel_api_blast(url)
         if res and res != url: return self._finalize(url, res)
 
-        # --- Last Resort ---
         res = basic_redirect(url)
         if res and res != url: return self._finalize(url, res)
 
@@ -489,14 +373,60 @@ def webhook():
 
 @app.route('/')
 def home():
-    return "⚡ Tiered Bypass Engine Level 20 Connected Successfully ⚡", 200
-
-@app.route('/stats')
-def stats():
-    return jsonify(cache.get_stats())
+    return "⚡ Bypass Engine Active ⚡", 200
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(msg):
     if not check_must_join(msg.from_user.id):
         markup = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL))
-        bot.send_message(msg.ch
+        bot.send_message(msg.chat.id, "🔗 *Please join our channel first to use this bot!*", parse_mode="Markdown", reply_markup=markup)
+        return
+    text = f"👋 *Welcome {msg.from_user.first_name}!*\n🚀 *Multi-Tier Smart Bypass Engine*\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n⚡ 20+ Direct Methods & 4 Core Engine Tiers Active.\n\n📥 *Send me any short link to extract!*"
+    markup = InlineKeyboardMarkup().row(InlineKeyboardButton("📢 Channel", url=CHANNEL_URL), InlineKeyboardButton("👨‍💻 Developer", url=DEVELOPER_URL))
+    bot.send_message(msg.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: True)
+def handle_links(msg):
+    user_id = msg.from_user.id
+    if not rate_limiter.is_allowed(str(user_id)):
+        bot.reply_to(msg, "⏰ *Rate limit exceeded. Try again in a minute.*", parse_mode="Markdown")
+        return
+    if not check_must_join(user_id):
+        markup = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_URL))
+        bot.send_message(msg.chat.id, "🔗 *Please join our channel first!*", parse_mode="Markdown", reply_markup=markup)
+        return
+    urls = re.findall(r'(https?://[^\s]+)', msg.text)
+    if not urls:
+        bot.reply_to(msg, "❌ *Please send a valid HTTP/HTTPS link.*", parse_mode="Markdown")
+        return
+    
+    target = urls[0].strip()
+    proc_msg = bot.send_message(msg.chat.id, "⚡ *Analyzing multi-tier execution graph...*", parse_mode="Markdown")
+    start = time.time()
+    
+    try:
+        dest = engine.bypass(target)
+        elapsed = int((time.time() - start) * 1000)
+        if dest and dest != target:
+            markup = InlineKeyboardMarkup().add(InlineKeyboardButton("🌐 Open Link", url=dest))
+            bot.delete_message(msg.chat.id, proc_msg.message_id)
+            bot.send_message(msg.chat.id, f"✅ *Bypassed Successfully!* ({elapsed}ms)\n\n🔗 *Result:* `{dest}`", parse_mode="Markdown", reply_markup=markup)
+        else:
+            bot.edit_message_text("❌ *Bypass failed – All multi-tier layers exhausted.*", msg.chat.id, proc_msg.message_id, parse_mode="Markdown")
+    except Exception as e:
+        bot.edit_message_text(f"❌ *Engine Exception:* {str(e)[:80]}", msg.chat.id, proc_msg.message_id, parse_mode="Markdown")
+
+def set_webhook():
+    time.sleep(3)
+    try:
+        bot.remove_webhook()
+        bot.set_webhook(url=f"{BASE_URL}/{BOT_TOKEN}")
+        logger.info("Webhook assigned successfully.")
+    except Exception as e:
+        logger.error(f"Webhook configuration failure: {e}")
+
+if __name__ == '__main__':
+    threading.Thread(target=set_webhook, daemon=True).start()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+    
