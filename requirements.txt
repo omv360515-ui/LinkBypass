@@ -1,4 +1,10 @@
-pyTelegramBotAPI==4.14.0
-Flask==3.0.0
+flask==2.3.3
 requests==2.31.0
+pyTelegramBotAPI==4.15.0
+beautifulsoup4==4.12.2
+cloudscraper==1.2.71
+curl_cffi==0.5.10
+playwright==1.40.0
+undetected-chromedriver==3.5.5
 gunicorn==21.2.0
+setuptools==68.2.2
